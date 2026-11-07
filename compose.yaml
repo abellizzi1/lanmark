@@ -1,0 +1,86 @@
+name: lanmark
+services:
+  lanmark:
+    image: angelobellizzi/lanmark:0.1.0
+    build: {context: ., target: api}
+    restart: unless-stopped
+    ports: ['127.0.0.1:8000:8000']
+    environment:
+      LANMARK_API_TOKEN: ${LANMARK_API_TOKEN:?Set LANMARK_API_TOKEN}
+      LANMARK_AGENT_TOKEN: ${LANMARK_AGENT_TOKEN:?Set LANMARK_AGENT_TOKEN}
+      NOTIFICATION_WEBHOOK_URL: ${NOTIFICATION_WEBHOOK_URL:-}
+      BLACKBOX_URL: http://blackbox:9115
+    volumes:
+      - lanmark-data:/data
+      - ../lanmark-config/base/config/lanmark.yaml:/etc/lanmark/lanmark.yaml:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    depends_on: [blackbox]
+  blackbox:
+    image: prom/blackbox-exporter:v0.29.1
+    command: ['--config.file=/etc/blackbox/blackbox.yml']
+    restart: unless-stopped
+    volumes:
+      - ../lanmark-config/base/config/blackbox.yaml:/etc/blackbox/blackbox.yml:ro
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    command: ['--config.file=/etc/prometheus/prometheus.yml', '--storage.tsdb.path=/prometheus', '--storage.tsdb.retention.time=30d', '--storage.tsdb.retention.size=8GB']
+    restart: unless-stopped
+    volumes:
+      - ../lanmark-config/base/config/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ../lanmark-config/base/config/alerts.yaml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    secrets:
+      - source: api-token
+        target: /etc/lanmark-secrets/api-token
+    depends_on: [lanmark, alertmanager]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  alertmanager:
+    image: prom/alertmanager:v0.34.2
+    command: ['--config.file=/etc/alertmanager/alertmanager.yml', '--storage.path=/alertmanager', '--cluster.listen-address=']
+    restart: unless-stopped
+    volumes:
+      - ../lanmark-config/base/config/alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    secrets:
+      - source: api-token
+        target: /etc/lanmark-secrets/api-token
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+  grafana:
+    image: grafana/grafana:13.3.0
+    restart: unless-stopped
+    ports: ['127.0.0.1:3000:3000']
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../lanmark-config/base/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ../lanmark-config/base/grafana/providers.yaml:/etc/grafana/provisioning/dashboards/providers.yaml:ro
+      - ../lanmark-config/base/grafana/network.json:/var/lib/grafana/dashboards/network.json:ro
+    depends_on: [prometheus]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+secrets:
+  api-token:
+    environment: LANMARK_API_TOKEN
+volumes:
+  lanmark-data:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:

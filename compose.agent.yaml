@@ -1,0 +1,21 @@
+# Run on native Linux connected to the LAN, not inside Docker Desktop/k3d.
+services:
+  agent:
+    image: angelobellizzi/lanmark-agent:0.1.0
+    build:
+      context: .
+      target: agent
+    network_mode: host
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      LANMARK_API_URL: ${LANMARK_API_URL:?Set LANMARK_API_URL}
+      LANMARK_AGENT_TOKEN: ${LANMARK_AGENT_TOKEN:?Set LANMARK_AGENT_TOKEN}
+    volumes:
+      - ./agent.yaml:/etc/lanmark/agent.yaml:ro
+    logging:
+      options: {max-size: 10m, max-file: '3'}
